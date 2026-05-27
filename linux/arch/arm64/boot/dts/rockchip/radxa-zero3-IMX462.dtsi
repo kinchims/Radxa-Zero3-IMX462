@@ -9,14 +9,6 @@
 };
 
 &{/} {
-	clk_cam_24m: external-camera-clock-24m {
-		status = "okay";
-		compatible = "fixed-clock";
-		clock-frequency = <37125000>;
-		clock-output-names = "clk_cam_24m";
-		#clock-cells = <0>;
-	};
-
 	camera_pwdn_gpio: camera-pwdn-gpio {
 		status = "okay";
 		compatible = "regulator-fixed";
@@ -35,24 +27,25 @@
 	#address-cells = <1>;
 	#size-cells = <0>;
 
-	camera_imx462: camera-imx462@1a {
+	camera_imx290: camera-imx290@1a {
 		status = "okay";
-		compatible = "sony,imx290";
+		compatible = "veye,mvcam";
 		reg = <0x1a>;
-		clocks = <&clk_cam_24m>;
 		clock-frequency = <37125000>;
 		clock-names = "xclk";
 		rockchip,camera-module-index = <0>;
 		rockchip,camera-module-facing = "back";
 		rockchip,camera-module-name = "IMX462";
 		rockchip,camera-module-lens-name = "default";
-
+		clocks = <&cru CLK_CIF_OUT>;
+		assigned-clocks = <&cru CLK_CIF_OUT>;
+		assigned-clock-rates = <37125000>;
+		
 		port {
 			ucam_out0: endpoint {
 				remote-endpoint = <&mipi_in_ucam0>;
-				clock-lanes = <0>;
 				data-lanes = <1 2>;
-				link-frequencies = /bits/ 64 <297000000 445500000>; 
+				link-frequencies = /bits/ 64 <445500000 297000000>; 
 			};
 		};
 	};
@@ -64,7 +57,7 @@
 
 &csi2_dphy0 {
 	status = "okay";
-
+	
 	ports {
 		#address-cells = <1>;
 		#size-cells = <0>;
@@ -77,7 +70,6 @@
 			mipi_in_ucam0: endpoint@1 {
 				reg = <1>;
 				remote-endpoint = <&ucam_out0>;
-				clock-lanes = <0>;
 				data-lanes = <1 2>;
 			};
 		};
