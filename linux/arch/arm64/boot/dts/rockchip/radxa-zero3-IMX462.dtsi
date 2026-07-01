@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
 / {
 	metadata {
 		title = "Enable IMX462";
@@ -9,50 +8,58 @@
 	};
 };
 
-/ {
-	clk_cam_37m: external-camera-clock-37m {
+&{/} {
+	clk_cam_24m: external-camera-clock-24m {
+		status = "okay";
 		compatible = "fixed-clock";
 		clock-frequency = <37125000>;
+		clock-output-names = "clk_cam_24m";
 		#clock-cells = <0>;
-		clock-output-names = "xclk";
+	};
+
+	camera_pwdn_gpio: camera-pwdn-gpio {
+		status = "okay";
+		compatible = "regulator-fixed";
+		regulator-name = "camera_pwdn_gpio";
+		regulator-always-on;
+		regulator-boot-on;
+		enable-active-high;
+		gpio = <&gpio3 RK_PC6 GPIO_ACTIVE_HIGH>;
 	};
 };
 
 &i2c2 {
 	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&i2c2m1_xfer>;
+	#address-cells = <1>;
+	#size-cells = <0>;
 
-	imx462: imx462@1a {
+	camera_imx462: camera-imx462@1a {
 		status = "okay";
-
 		compatible = "sony,imx290";
 		reg = <0x1a>;
-
-		
-		clock-names = "xclk";
-		assigned-clocks = <&cru CLK_CIF_OUT>;
-		assigned-clock-rates = <37125000>;
-		clocks = <&cru CLK_CIF_OUT>;
+		clocks = <&clk_cam_24m>;
 		clock-frequency = <37125000>;
-		reset-delay-us = <50000>;
-		reset-gpios = <&gpio3 RK_PC6 GPIO_ACTIVE_LOW>; 
-		power-domains = <&power RK3568_PD_VI>;
-		pinctrl-names = "default";
-        	pinctrl-0 = <&cif_clk>;
-		rockchip,sensor-init-delay-ms = <100>;
-		
+		clock-names = "xclk";
 		rockchip,camera-module-index = <0>;
 		rockchip,camera-module-facing = "back";
 		rockchip,camera-module-name = "IMX462";
 		rockchip,camera-module-lens-name = "default";
 
 		port {
-			imx462_out: endpoint {
+			ucam_out0: endpoint {
 				remote-endpoint = <&mipi_in_ucam0>;
+				clock-lanes = <0>;
 				data-lanes = <1 2>;
-				link-frequencies = /bits/ 64 <297000000 445500000>; 
+				link-frequencies = /bits/ 64 <445500000 297000000>; 
 			};
 		};
 	};
+};
+
+&csi2_dphy_hw {
+	status = "okay";
 };
 
 &csi2_dphy0 {
@@ -69,7 +76,8 @@
 
 			mipi_in_ucam0: endpoint@1 {
 				reg = <1>;
-				remote-endpoint = <&imx462_out>;
+				remote-endpoint = <&ucam_out0>;
+				clock-lanes = <0>;
 				data-lanes = <1 2>;
 			};
 		};
@@ -87,21 +95,25 @@
 	};
 };
 
-&rkisp {
-	status = "okay";
-};
-
 &rkisp_vir0 {
 	status = "okay";
 
 	port {
-		isp0_in: endpoint {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		isp0_in: endpoint@0 {
+			reg = <0>;
 			remote-endpoint = <&dphy0_out>;
 		};
 	};
 };
 
-&rkcif {
+&rkisp {
+	status = "okay";
+};
+
+&rkisp_mmu {
 	status = "okay";
 };
 
@@ -109,14 +121,6 @@
 	status = "okay";
 };
 
-&csi2_dphy1 {
-	status = "disabled";
-};
-
-&csi2_dphy2 {
-	status = "disabled";
-};
-
-&csi2_dphy_hw {
+&rkcif {
 	status = "okay";
 };
