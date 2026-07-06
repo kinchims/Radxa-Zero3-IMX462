@@ -17,7 +17,7 @@
 #include <linux/pm_runtime.h>
 #include <linux/regmap.h>
 #include <linux/regulator/consumer.h>
-
+#include <linux/rk-camera-module.h>
 #include <asm/unaligned.h>
 
 #include <media/media-entity.h>
@@ -115,6 +115,7 @@
 #define IMX290_EXPOSURE_OFFSET				2
 
 #define IMX290_PIXEL_RATE				148500000
+#define IMX290_NAME						"imx290"
 
 /*
  * The IMX290 pixel array is organized as follows:
@@ -237,6 +238,7 @@ struct imx290_csi_cfg {
 
 struct imx290 {
 	struct device *dev;
+	
 	struct clk *xclk;
 	struct regmap *regmap;
 	enum imx290_clk_freq xclk_idx;
@@ -260,6 +262,11 @@ struct imx290 {
 		struct v4l2_ctrl *hflip;
 		struct v4l2_ctrl *vflip;
 	};
+	u32 module_index;
+
+	const char *module_facing;
+	const char *module_name;
+	const char *len_name;
 };
 
 static inline struct imx290 *to_imx290(struct v4l2_subdev *_sd)
@@ -1279,9 +1286,92 @@ static int imx290_entity_init_cfg(struct v4l2_subdev *subdev,
 	return 0;
 }
 
+
+static void imx290_get_module_inf(struct imx290 *imx290,
+				  struct rkmodule_inf *inf)
+{
+	memset(inf, 0, sizeof(*inf));
+	strlcpy(inf->base.sensor, IMX290_NAME, sizeof(inf->base.sensor));
+	strlcpy(inf->base.module, imx290->module_name,
+		sizeof(inf->base.module));
+	strlcpy(inf->base.lens, imx290->len_name, sizeof(inf->base.lens));
+	dev_info(imx290->dev, "ioctl name passed: %s\n",
+		 IMX290_NAME);
+	dev_info(imx290->dev, "ioctl module_name passed: %s\n",
+		 imx290->module_name ? imx290->module_name : "NULL");
+	dev_info(imx290->dev, "ioctl len_name passed: %s\n",
+		 imx290->len_name ? imx290->len_name : "NULL");
+}
+
+static long imx290_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
+{
+	struct imx290*imx290= to_imx290(sd);
+	long ret = 0;
+
+	switch (cmd) {
+	case RKMODULE_GET_MODULE_INFO:
+		dev_info(sd->dev, "getting module info");
+		imx290_get_module_inf(imx290, (struct rkmodule_inf *)arg);
+		dev_info(sd->dev, "got module info");
+		break;
+	default:
+		ret = -ENOIOCTLCMD;
+		break;
+	}
+
+	return ret;
+}
+
+#ifdef CONFIG_COMPAT
+static long imx290_compat_ioctl32(struct v4l2_subdev *sd,
+				  unsigned int cmd, unsigned long arg)
+{
+	void __user *up = compat_ptr(arg);
+	struct rkmodule_inf *inf;
+	struct rkmodule_awb_cfg *cfg;
+	long ret;
+
+	switch (cmd) {
+	case RKMODULE_GET_MODULE_INFO:
+		inf = kzalloc(sizeof(*inf), GFP_KERNEL);
+		if (!inf) {
+			ret = -ENOMEM;
+			return ret;
+		}
+
+		ret = imx290_ioctl(sd, cmd, inf);
+		if (!ret)
+			ret = copy_to_user(up, inf, sizeof(*inf));
+		kfree(inf);
+		break;
+	case RKMODULE_AWB_CFG:
+		cfg = kzalloc(sizeof(*cfg), GFP_KERNEL);
+		if (!cfg) {
+			ret = -ENOMEM;
+			return ret;
+		}
+
+		ret = copy_from_user(cfg, up, sizeof(*cfg));
+		if (!ret)
+			ret = imx290_ioctl(sd, cmd, cfg);
+		kfree(cfg);
+		break;
+	default:
+		ret = -ENOIOCTLCMD;
+		break;
+	}
+
+	return ret;
+}
+#endif
+
 static const struct v4l2_subdev_core_ops imx290_core_ops = {
 	.subscribe_event = v4l2_ctrl_subdev_subscribe_event,
 	.unsubscribe_event = v4l2_event_subdev_unsubscribe,
+	.ioctl = imx290_ioctl,
+#ifdef CONFIG_COMPAT
+	.compat_ioctl32 = imx290_compat_ioctl32,
+#endif
 };
 
 static const struct v4l2_subdev_video_ops imx290_video_ops = {
@@ -1302,6 +1392,7 @@ static const struct v4l2_subdev_ops imx290_subdev_ops = {
 	.core = &imx290_core_ops,
 	.video = &imx290_video_ops,
 	.pad = &imx290_pad_ops,
+	
 };
 
 static const struct media_entity_operations imx290_subdev_entity_ops = {
@@ -1588,15 +1679,31 @@ done:
 	return ret;
 }
 
+
 static int imx290_probe(struct i2c_client *client)
 {
 	struct device *dev = &client->dev;
+	struct device_node *node = dev->of_node;
 	struct imx290 *imx290;
 	int ret;
 
 	imx290 = devm_kzalloc(dev, sizeof(*imx290), GFP_KERNEL);
 	if (!imx290)
 		return -ENOMEM;
+
+	ret = of_property_read_u32(node, RKMODULE_CAMERA_MODULE_INDEX,
+				   &imx290->module_index);
+	ret |= of_property_read_string(node, RKMODULE_CAMERA_MODULE_FACING,
+				       &imx290->module_facing);
+	ret |= of_property_read_string(node, RKMODULE_CAMERA_MODULE_NAME,
+				       &imx290->module_name);
+	ret |= of_property_read_string(node, RKMODULE_CAMERA_LENS_NAME,
+				       &imx290->len_name);
+	
+	if (ret) {
+		dev_err(dev, "could not get module information!\n");
+		return -EINVAL;
+	}
 
 	imx290->dev = dev;
 	imx290->regmap = devm_regmap_init_i2c(client, &imx290_regmap_config);
@@ -1665,7 +1772,20 @@ static int imx290_probe(struct i2c_client *client)
 	 * initializing everything as the subdev can be used immediately after
 	 * being registered.
 	 */
-	ret = v4l2_async_register_subdev(&imx290->sd);
+	
+
+	char facing[2];
+	memset(facing, 0, sizeof(facing));
+	if (strcmp(imx290->module_facing, "back") == 0)
+		facing[0] = 'b';
+	else
+		facing[0] = 'f';
+
+	snprintf(imx290->sd.name, sizeof(imx290->sd.name), "m%02d_%s_%s %s",
+		 imx290->module_index, facing,
+		 IMX290_NAME, dev_name(imx290->dev));
+	ret = v4l2_async_register_subdev_sensor(&imx290->sd);
+
 	if (ret < 0) {
 		dev_err(dev, "Could not register v4l2 device\n");
 		goto err_subdev;
@@ -1730,7 +1850,7 @@ static struct i2c_driver imx290_i2c_driver = {
 	.probe = imx290_probe,
 	.remove = imx290_remove,
 	.driver = {
-		.name = "imx290",
+		.name = IMX290_NAME,
 		.pm = pm_ptr(&imx290_pm_ops),
 		.of_match_table = imx290_of_match,
 	},
