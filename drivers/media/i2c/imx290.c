@@ -217,7 +217,7 @@ struct imx290_mode {
 	u32 vmax_min;
 	u8 link_freq_index;
 	u8 ctrl_07;
-
+	struct v4l2_fract max_fps;
 	const struct imx290_regval *data;
 	u32 data_size;
 
@@ -525,6 +525,10 @@ static const struct imx290_mode imx290_modes_2lanes[] = {
 		.data = imx290_1080p_settings,
 		.data_size = ARRAY_SIZE(imx290_1080p_settings),
 		.clk_cfg = imx290_1080p_clock_config,
+		.max_fps = {
+			.numerator = 10000,
+			.denominator = 300000,
+		},
 	},
 	{
 		.width = 1280,
@@ -536,6 +540,10 @@ static const struct imx290_mode imx290_modes_2lanes[] = {
 		.data = imx290_720p_settings,
 		.data_size = ARRAY_SIZE(imx290_720p_settings),
 		.clk_cfg = imx290_720p_clock_config,
+		.max_fps = {
+			.numerator = 10000,
+			.denominator = 300000,
+		},
 	},
 };
 
@@ -550,6 +558,10 @@ static const struct imx290_mode imx290_modes_4lanes[] = {
 		.data = imx290_1080p_settings,
 		.data_size = ARRAY_SIZE(imx290_1080p_settings),
 		.clk_cfg = imx290_1080p_clock_config,
+		.max_fps = {
+			.numerator = 10000,
+			.denominator = 300000,
+		},
 	},
 	{
 		.width = 1280,
@@ -561,6 +573,10 @@ static const struct imx290_mode imx290_modes_4lanes[] = {
 		.data = imx290_720p_settings,
 		.data_size = ARRAY_SIZE(imx290_720p_settings),
 		.clk_cfg = imx290_720p_clock_config,
+		.max_fps = {
+			.numerator = 10000,
+			.denominator = 300000,
+		},
 	},
 };
 
@@ -1295,12 +1311,23 @@ static void imx290_get_module_inf(struct imx290 *imx290,
 	strlcpy(inf->base.module, imx290->module_name,
 		sizeof(inf->base.module));
 	strlcpy(inf->base.lens, imx290->len_name, sizeof(inf->base.lens));
-	dev_info(imx290->dev, "ioctl name passed: %s\n",
-		 IMX290_NAME);
-	dev_info(imx290->dev, "ioctl module_name passed: %s\n",
-		 imx290->module_name ? imx290->module_name : "NULL");
-	dev_info(imx290->dev, "ioctl len_name passed: %s\n",
-		 imx290->len_name ? imx290->len_name : "NULL");
+}
+
+static int imx290_g_frame_interval(struct v4l2_subdev *sd,
+				   struct v4l2_subdev_frame_interval *fi)
+{
+	struct i2c_client *client = v4l2_get_subdevdata(sd);
+	struct imx290 *imx290 = to_imx290(client);
+
+	if (!imx290 || !imx290->current_mode) {
+		return -EAGAIN;
+	}
+
+	const struct imx290_mode *mode = imx290->current_mode;
+
+	fi->interval = mode->max_fps;
+
+	return 0;
 }
 
 static long imx290_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
@@ -1376,6 +1403,7 @@ static const struct v4l2_subdev_core_ops imx290_core_ops = {
 
 static const struct v4l2_subdev_video_ops imx290_video_ops = {
 	.s_stream = imx290_set_stream,
+	.g_frame_interval = imx290_g_frame_interval,
 };
 
 static const struct v4l2_subdev_pad_ops imx290_pad_ops = {
@@ -1398,6 +1426,7 @@ static const struct v4l2_subdev_ops imx290_subdev_ops = {
 static const struct media_entity_operations imx290_subdev_entity_ops = {
 	.link_validate = v4l2_subdev_link_validate,
 };
+
 
 static int imx290_subdev_init(struct imx290 *imx290)
 {
